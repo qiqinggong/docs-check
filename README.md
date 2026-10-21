@@ -2,7 +2,7 @@
 
 只读 Markdown 格式与本地链接检查工具。项目提供规则和扫描范围，工具提供固定的检查引擎组合。
 
-当前候选版本为 `0.2.0`，正式附件以 GitHub Releases 为准。需要 Node.js 22+ 和 npm；发行流程覆盖 macOS/Linux 与 Node 22/24，实际结果见仓库 Actions 及对应版本的发行记录。
+当前公开版本为 [0.2.0](https://github.com/qiqinggong/docs-check/releases/tag/v0.2.0)，附件通过同仓库 GitHub Releases 分发。需要 Node.js 22+ 和 npm；发行流程覆盖 macOS/Linux 与 Node 22/24，实际结果见仓库 Actions 及对应版本的发行记录。
 
 ## 安装与使用
 

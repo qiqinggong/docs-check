@@ -19,6 +19,8 @@ npm run pack:release
 npm run verify:package -- dist/docs-check-0.2.0.tgz --report-dir .local/preflight
 ```
 
+验证既有发行包时，在对应版本标签或源码提交的独立检出目录中运行。预检会核对包内 `BUILD.json` 的 `sourceCommit` 与当前 `HEAD`，后续文档提交也会使两者不同。
+
 构建器在独立临时目录从 `package-lock.json` 运行 `npm ci --ignore-scripts`，生成 shrinkwrap 与 `BUILD.json`，使用 bundleDependencies 携带运行依赖。输出包含 `.tgz`、`SHA256SUMS` 和构建摘要。已有同名输出时失败，复验可用 `--out-dir` 指定新目录，不覆盖已有验收包。
 
 缓存默认在源码目录 `.local/npm-cache`，可用 `DOCS_CHECK_NPM_CACHE` 指定其他缓存。它只供构建和安装使用，文档检查不接触 npm。
