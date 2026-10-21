@@ -1,0 +1,5 @@
+{
+  "globs": ["README.md", "AGENTS.md", "CHANGELOG.md", "docs/**/*.md"],
+  "fix": false,
+  "config": {"default": true, "MD013": false, "MD060": false}
+}

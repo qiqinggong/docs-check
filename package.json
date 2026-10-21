@@ -1,0 +1,52 @@
+{
+  "name": "docs-check",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Read-only Markdown checks using project-owned rules",
+  "bin": {
+    "docs-check": "cli.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "pack:release": "node scripts/pack.mjs",
+    "verify:package": "node scripts/verify-package.mjs"
+  },
+  "dependencies": {
+    "ajv": "8.20.0",
+    "jsonc-parser": "3.3.1",
+    "markdownlint": "0.41.1",
+    "remark": "15.0.1",
+    "remark-gfm": "4.0.1",
+    "remark-validate-links": "13.1.0",
+    "tinyglobby": "0.2.17",
+    "unified-engine": "11.2.2"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/qiqinggong/docs-check.git"
+  },
+  "homepage": "https://github.com/qiqinggong/docs-check",
+  "files": [
+    "cli.mjs",
+    "npm-shrinkwrap.json",
+    "BUILD.json",
+    "CHANGELOG.md",
+    "docs/configuration.md",
+    "docs/releasing.md"
+  ],
+  "bundleDependencies": [
+    "ajv",
+    "jsonc-parser",
+    "markdownlint",
+    "remark",
+    "remark-gfm",
+    "remark-validate-links",
+    "tinyglobby",
+    "unified-engine"
+  ]
+}

@@ -1,0 +1,98 @@
+name: Draft release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  DOCS_CHECK_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.DOCS_CHECK_TAG }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm test
+      - run: node cli.mjs --root .
+      - run: npm run pack:release -- --tag "$DOCS_CHECK_TAG"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: release-package
+          path: dist/
+          if-no-files-found: error
+
+  verify:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: [22, 24]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.DOCS_CHECK_TAG }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+      - uses: actions/download-artifact@v6
+        with:
+          name: release-package
+          path: dist
+      - name: Verify the built package without source dependencies
+        run: |
+          DOCS_CHECK_VERSION=$(node -p "require('./package.json').version")
+          node scripts/verify-package.mjs "dist/docs-check-${DOCS_CHECK_VERSION}.tgz" --report-dir .local/preflight
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: verification-${{ matrix.os }}-node-${{ matrix.node }}
+          path: .local/preflight/
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  draft:
+    needs: [build, verify]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.DOCS_CHECK_TAG }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v6
+        with:
+          name: release-package
+          path: dist
+      - run: sha256sum --check SHA256SUMS
+        working-directory: dist
+      - name: Create a draft with the verified assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          DOCS_CHECK_VERSION=$(node -p "require('./package.json').version")
+          gh release create "$DOCS_CHECK_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --draft \
+            --title "docs-check ${DOCS_CHECK_VERSION}" --notes-file CHANGELOG.md \
+            "dist/docs-check-${DOCS_CHECK_VERSION}.tgz" dist/SHA256SUMS

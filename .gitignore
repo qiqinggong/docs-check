@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.local/
+npm-shrinkwrap.json
+BUILD.json
+*.tgz
+npm-debug.log*
+.DS_Store
