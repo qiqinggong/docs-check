@@ -17,6 +17,19 @@ function allowedKeys(value, keys, label) {
   }
 }
 
+async function hasSymbolicLink(target) {
+  const relative = path.relative(root, target);
+  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error(`Path is outside project root: ${target}`);
+  }
+  let current = root;
+  for (const part of relative.split(path.sep).filter(Boolean)) {
+    current = path.join(current, part);
+    if ((await fs.lstat(current)).isSymbolicLink()) return true;
+  }
+  return false;
+}
+
 function emit(result) {
   if (jsonOutput) {
     console.log(JSON.stringify(result, null, 2));
@@ -99,19 +112,31 @@ try {
     if (!Object.hasOwn(pluginLoaders, name)) throw new Error(`Unsupported or unavailable plugin: ${name}`);
     if (Array.isArray(entry) && entry.length > 2) throw new Error(`Invalid plugin entry: ${name}`);
     if (seen.has(name)) throw new Error(`Duplicate plugin: ${name}`);
-    seen.add(name);
+    if (options === false) throw new Error(`Required plugin ${name} cannot be disabled`);
     if (name === 'remark-validate-links') {
       allowedKeys(options, ['repository'], 'Link options');
       if (options.repository !== false) throw new Error('Link checks require repository: false');
     }
+    seen.add(name);
     plugins.push([(await pluginLoaders[name]()).default, options]);
   }
   if (!seen.has('remark-gfm') || !seen.has('remark-validate-links')) throw new Error('GFM and local link validation plugins are required');
 
   const {glob} = await import('tinyglobby');
-  const files = (await glob(config.globs, {cwd: root, onlyFiles: true, followSymbolicLinks: false, expandDirectories: false})).sort();
+  const files = (await glob(config.globs, {
+    cwd: root, onlyFiles: true, followSymbolicLinks: false, expandDirectories: false,
+    fs: {
+      readdir(directory, options, callback) {
+        // A fixed glob prefix can become the crawler root, bypassing its symlink filter.
+        hasSymbolicLink(directory)
+          .then(skip => skip ? [] : fs.readdir(directory, options))
+          .then(entries => callback(null, entries), error => callback(error));
+      }
+    }
+  })).sort();
   if (!files.length) throw new Error('No documentation files matched');
   for (const file of files) {
+    if (await hasSymbolicLink(path.join(root, file))) throw new Error(`Symbolic link in scan path: ${file}`);
     const relative = path.relative(root, await fs.realpath(path.join(root, file)));
     if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) throw new Error(`File is outside project root: ${file}`);
     if (path.extname(file).toLowerCase() !== '.md') throw new Error(`Only Markdown files are supported: ${file}`);
@@ -131,9 +156,10 @@ try {
   })));
   const {engine} = await import('unified-engine');
   const {remark} = await import('remark');
+  const {VFile} = await import('vfile');
   const checked = await new Promise((resolve, reject) => engine({
-    processor: remark, cwd: root, files: absoluteFiles, plugins, extensions: ['md'],
-    detectConfig: false, detectIgnore: false, output: false, alwaysStringify: false,
+    processor: remark, cwd: root, files: absoluteFiles.map(file => new VFile({path: file})), plugins, extensions: ['md'],
+    detectConfig: false, detectIgnore: false, output: false, out: false, alwaysStringify: false,
     frail: true, reporter: () => ''
   }, (error, code, context) => error ? reject(error) : resolve({code, files: context.files})));
   const actual = checked.files.map(file => path.resolve(root, file.path)).sort();

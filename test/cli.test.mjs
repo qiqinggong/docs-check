@@ -23,8 +23,8 @@ async function write(root, file, text) {
   await fs.writeFile(target, text);
 }
 
-async function fixture(t) {
-  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'docs-check test-')));
+async function fixture(t, prefix = 'docs-check test-') {
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), prefix)));
   t.after(() => fs.rm(root, {recursive: true, force: true}));
   await write(root, '.markdownlint-cli2.jsonc', JSON.stringify(format));
   await write(root, '.remarkrc.json', JSON.stringify(links));
@@ -92,6 +92,88 @@ test('both checkers report issues from one file set', async t => {
   const output = await check(root, 1);
   assert.ok(output.issues.some(issue => issue.rule === 'MD022'));
   assert.ok(output.issues.some(issue => issue.rule === 'missing-file'));
+});
+
+for (const [name, content, exitCode] of [
+  ['valid', '# 示例\n\nSOURCE_MUST_NOT_BE_PRINTED\n', 0],
+  ['violations', '# 示例\n\n[缺失](absent.md)\n', 1]
+]) {
+  test(`single-file ${name} emits only the JSON result`, async t => {
+    const root = await fixture(t);
+    await write(root, '.markdownlint-cli2.jsonc', JSON.stringify({...format, globs: ['README.md']}));
+    await write(root, 'README.md', content);
+    const output = await check(root, exitCode);
+    assert.equal(output.status, exitCode ? 'violations' : 'passed');
+    assert.deepEqual(output.files, ['README.md']);
+    if (exitCode) assert.ok(output.issues.some(issue => issue.rule === 'missing-file'));
+  });
+}
+
+test('glob characters in the project root preserve both checker scopes', async t => {
+  const root = await fixture(t, 'docs-check [draft] {notes} (v1)-');
+  const listed = await check(root, 0, ['--list-files']);
+  assert.deepEqual((await check(root)).files, listed.files);
+  await write(root, 'README.md', '# 示例\n\n[缺失](absent.md)\n');
+  const output = await check(root, 1);
+  assert.ok(output.issues.some(issue => issue.file === 'README.md' && issue.rule === 'missing-file'));
+});
+
+test('selected document paths with glob characters are checked literally', async t => {
+  const root = await fixture(t);
+  const specialFiles = ['[guide].md', '{guide,notes}.md', '@(draft).md', 'literal*.md', 'literal?.md']
+    .map(name => `docs/${name}`);
+  for (const file of specialFiles) await write(root, file, '# 示例\n\n[缺失](absent.md)\n');
+  await write(root, 'docs/g.md', '# 普通文档\n');
+  const listed = await check(root, 0, ['--list-files']);
+  const output = await check(root, 1);
+  assert.deepEqual(output.files, listed.files);
+  for (const file of specialFiles) {
+    assert.ok(output.issues.some(issue => issue.file === file && issue.rule === 'missing-file'), file);
+  }
+});
+
+test('enabled GFM finds table links between cross-cell backticks', async t => {
+  const root = await fixture(t);
+  await write(root, 'README.md', '# 示例\n\n| 起始 | 链接 | 结束 |\n| --- | --- | --- |\n| `start | [缺失](absent.md) | end` |\n');
+  const output = await check(root, 1);
+  assert.ok(output.issues.some(issue => issue.rule === 'missing-file'));
+  await write(root, '.remarkrc.json', JSON.stringify({plugins: [['remark-gfm', false], links.plugins[1]]}));
+  assert.match((await check(root, 2)).error, /remark-gfm.*cannot be disabled/);
+});
+
+test('GFM native options remain supported', async t => {
+  const root = await fixture(t);
+  await write(root, '.remarkrc.json', JSON.stringify({plugins: [['remark-gfm', {singleTilde: false}], links.plugins[1]]}));
+  await check(root);
+});
+
+for (const [name, link, scope, outside] of [
+  ['fixed prefix', 'linked', 'linked/**/*.md', false],
+  ['intermediate prefix', 'docs/linked', 'docs/linked/sub/**/*.md', false],
+  ['outside target', 'linked', 'linked/**/*.md', true]
+]) {
+  test(`symbolic directory ${name} is excluded before traversal`, async t => {
+    const root = await fixture(t);
+    const target = outside ? await fixture(t) : path.join(root, 'real');
+    await write(target, 'sub/a.md', '# 示例\n\n正文。\n');
+    await fs.symlink(target, path.join(root, link), 'dir');
+    await write(root, '.markdownlint-cli2.jsonc', JSON.stringify({...format, globs: [scope]}));
+    for (const extra of [[], ['--list-files']]) {
+      const output = await check(root, 2, extra);
+      assert.equal(output.status, 'unavailable');
+      assert.match(output.error, /No documentation files matched/);
+    }
+  });
+}
+
+test('ordinary files are selected while symbolic files and directories are excluded', async t => {
+  const root = await fixture(t);
+  await write(root, 'real/a.md', '# 示例\n\n正文。\n');
+  await fs.symlink(path.join(root, 'real/a.md'), path.join(root, 'real/file-link.md'));
+  await fs.symlink(path.join(root, 'docs'), path.join(root, 'real/directory-link'), 'dir');
+  await write(root, '.markdownlint-cli2.jsonc', JSON.stringify({...format, globs: ['real/**/*.md']}));
+  assert.deepEqual((await check(root, 0, ['--list-files'])).files, ['real/a.md']);
+  assert.deepEqual((await check(root)).files, ['real/a.md']);
 });
 
 test('single scope, exclusions and expanded docs directory', async t => {
